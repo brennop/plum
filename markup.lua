@@ -48,7 +48,7 @@ function m.each(node)
 
   local children = {}
 
-  for key, item in pairs(node.data) do
+  for key, item in ipairs(node.data) do
     local context = { key = key }
 
     for k, v in pairs(item) do context[k] = v end
@@ -62,10 +62,11 @@ end
 function m.render(node, context)
   if type(node) == "string" then
     if context then
-      local result, _ = node:gsub("%$(%w+)", context)
+      local result, _ = node:gsub("%$(%w+)", context):gsub("\n", "<br />")
       return result
     end
-    return node
+    local result, _ = node:gsub("\n", "<br />")
+    return result
   end
 
   if node.tag == "each" then

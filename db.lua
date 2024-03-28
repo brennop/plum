@@ -1,12 +1,23 @@
 local db = {}
 db.__index = db
 
-function copy(t)
-  local new = {}
-  for k, v in pairs(t) do
-    new[k] = v
+local q = "%q,"
+
+local function append(file, record)
+  file:write "{"
+  for key, value in pairs(record) do
+    if not type(key) == "string" then
+      -- don't save non string keys
+    elseif type(value) == "string" then
+      file:write(key, "=", string.format("%q", value):gsub("\n", "n"), ",")
+    else
+      file:write(key, "=", value, ",")
+    end
   end
-  return new
+  file:write "}\n"
+
+  -- commit
+  file:flush()
 end
 
 function db:new(path)
@@ -14,45 +25,54 @@ function db:new(path)
   self.path = path
 
   self.data = {}
-  self.file = io.open(path, "r+")
+  self.file, err = io.open(path, "r+")
 
-  for line in self.file:lines() do
-    local record = loadstring("return " .. line)()
-    local collection = self.data[record.collection] or {}
-    collection[record.id] = record
-    self.data[record.collection] = collection
+  if self.file then
+    for line in self.file:lines() do
+      local ok, data = pcall(loadstring("return " .. line))
+      if not ok then
+        -- ignore this line for now
+      else
+        local collection = self:collection(data.collection)
+        collection[data.id] = data
+        collection.next = data.id + 1
+      end
+    end
+  else
+    self.file = io.open(path, "a")
   end
 
   return self
 end
 
--- Saves a new record
--- if value has an id, it will update the record
-function db:put(collectionId, value)
-  local collection = self.data[collectionId] or {}
-  local id = value.id or #collection + 1
+local function put(collection, value)
+  local id = value.id or collection.next
+  if id == collection.next then
+    collection.next = collection.next + 1
+  end
 
-  local record = copy(value)
+  local record = {}
+
+  -- shalow copy
+  for k, v in pairs(value) do record[k] = v end
 
   record.id = id
   record.updated = os.time()
-  record.collection = collectionId
+  record.collection = collection.name
 
   collection[id] = record
 
-  self.data[collectionId] = collection
-
-  self:append(record)
+  append(collection.db.file, record)
 
   return id
 end
 
-function db:get(collectionId, filter)
-  local collection = self.data[collectionId] or {}
+-- TODO: add options
+local function get(collection, options)
   local result = {}
 
-  for _, record in pairs(collection) do
-    if not filter or filter(record) then
+  for _, record in ipairs(collection) do
+    if not options.filter or options.filter(record) then
       table.insert(result, record)
     end
   end
@@ -60,20 +80,18 @@ function db:get(collectionId, filter)
   return result
 end
 
-function db:append(record)
-  self.file:write "{"
-  for key, value in pairs(record) do
-    if not type(key) == "string" then
-    elseif type(value) == "string" then
-      self.file:write(string.format("%s = %q,", key, value))
-    else
-      self.file:write(key, " = ", value, ",")
-    end
-  end
-  self.file:write "}\n"
+function db:collection(name)
+  local collection = self.data[name] or {
+    put = put,
+    get = get,
+    next = 1,
+    name = name,
+    db = self,
+  }
 
-  -- commit
-  self.file:flush()
+  self.data[name] = collection
+
+  return collection
 end
 
 return db

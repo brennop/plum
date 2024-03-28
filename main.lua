@@ -1,11 +1,17 @@
 local http = require "http"
 local markup = require "markup"
-local db = require "db"
 
-local instance = db:new "db"
--- instance:sync()
+local db = require("db"):new("/tmp/db")
 
-local threads = instance:get("threads")
+local threads = db:collection "threads"
+local messages = db:collection "messages"
+
+-- if no threads, seed the db
+if #threads == 0 then
+  threads:put { name = "programming" }
+  threads:put { name = "gaming" }
+  threads:put { name = "offtopic" }
+end
 
 local html = markup.html
 
@@ -44,7 +50,9 @@ http
     }
   end)
   :handle("GET /(%w+)", function(request, name)
-    local messages = instance:get("messages", function(item) return item.thread == name end)
+    local messages = messages:get {
+      filter = function(item) return item.thread == name end
+    }
 
     if not messages then
       return html {
@@ -89,7 +97,7 @@ http
       return { status = 400, body = "bad request" }
     end
 
-    instance:put("messages", { author = author, message = message, thread = name })
+    messages:put { author = author, message = message, thread = name }
 
     return markup.li {
       markup.p { "author: " .. author },

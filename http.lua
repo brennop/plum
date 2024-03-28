@@ -52,7 +52,9 @@ end
 function http:match_handler(request)
   for key, handler in pairs(self.handlers) do
     local match = (request.path or request.pattern):match(key .. "$")
-    if match then return handler(request, match) end
+    if match then 
+      return pcall(handler, request, match)
+    end
   end
 
   return { status = 404, body = "Not Found" }
@@ -149,9 +151,14 @@ function http:receive(client)
 end
 
 function http:send(client, request)
-  local data = self:match_handler(request)
+  local ok, data = self:match_handler(request)
+  local response = ""
 
-  local response = serialize(data)
+  if not ok then
+    response = serialize { status = 500, body = data }
+  else
+    response = serialize(data)
+  end
 
   for i = 1, #response, SEND_SIZE do
     client:send(response:sub(i, i + SEND_SIZE - 1))
